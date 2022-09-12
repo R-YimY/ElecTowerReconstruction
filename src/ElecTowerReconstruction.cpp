@@ -1,6 +1,6 @@
 #include"ElecTowerReconstruction.h"
 
-
+//读取数据，数据格式为xyz;
 PointCloudT::Ptr ElecTowerReconsrutction::DataInput(string& filepath) {
 	ifstream file;
 	file.open(filepath);
@@ -25,6 +25,7 @@ PointCloudT::Ptr ElecTowerReconsrutction::DataInput(string& filepath) {
 	Y = Y / cloud->points.size();
 	Z = Z / cloud->points.size();
 
+
 	for (size_t i = 0; i < cloud->points.size(); i++)
 	{
 		cloud->points[i].x = cloud->points[i].x - X;
@@ -35,13 +36,52 @@ PointCloudT::Ptr ElecTowerReconsrutction::DataInput(string& filepath) {
 	return cloud;
 }
 
+//计算原始点云的包围盒
+void ElecTowerReconsrutction::AABBCompute(PointCloudT::Ptr &cloud) {
+	pcl::MomentOfInertiaEstimation <PointT> feature_extractor;
+	feature_extractor.setInputCloud(cloud);
+	feature_extractor.compute();
+	PointT min_point_AABB;//AABB包围盒
+	PointT max_point_AABB;
+	feature_extractor.getAABB(min_point_AABB, max_point_AABB);
+
+	OriginMaxAABB = max_point_AABB;
+	OriginMinAABB = min_point_AABB;
+
+}
+
+//计算中心点
+PointT CentorPoint(PointCloudT::Ptr &cloud) {
+	PointT centor;
+	double X(0), Y(0), Z(0);
+	for (int i(0); i < cloud->size(); i++) {
+		X += cloud->points[i].x;
+		Y += cloud->points[i].y;
+		Z += cloud->points[i].z;
+	}
+
+	X = X / cloud->points.size();
+	Y = Y / cloud->points.size();
+	Z = Z / cloud->points.size();
+
+	centor.x = X;
+	centor.y = Y;
+	centor.z = Z;
+
+	return centor;
+}
+
+
+
+
+//点云滤波
 PointCloudT::Ptr ElecTowerReconsrutction::PointCloudFilter(PointCloudT::Ptr & cloud)
 {
 	PointCloudT::Ptr cloud_filtered(new PointCloudT);
 	pcl::StatisticalOutlierRemoval<PointT> sor;
 	sor.setInputCloud(cloud);// 填入点云
-	sor.setMeanK(20);        // 设置均值参数K
-	sor.setStddevMulThresh(1.0);// 设置
+	sor.setMeanK(8);        // 设置均值参数K
+	sor.setStddevMulThresh(0.6);// 设置
 	sor.filter(*cloud_filtered);
 	return cloud_filtered;
 }
@@ -92,7 +132,7 @@ PointCloudT::Ptr ElecTowerReconsrutction::Projection_Y(PointCloudT::Ptr &cloud) 
 	transform_X.rotate(Eigen::AngleAxisf(-angle, Eigen::Vector3f::UnitX()));
 	PointCloudT::Ptr cloud_transformed(new PointCloudT);
 	pcl::transformPointCloud(*cloud_bev, *cloud_transformed, transform_X);
-	pcl::io::savePCDFile("result/Projection_Y.pcd", *cloud_transformed);
+	//pcl::io::savePCDFile("result/Projection_Y.pcd", *cloud_transformed);
 	return	cloud_transformed;
 }
 
@@ -113,11 +153,37 @@ void ElecTowerReconsrutction::Rerotate_X(PointCloudT::Ptr &cloud) {
 	transform_X.rotate(Eigen::AngleAxisf(angle, Eigen::Vector3f::UnitX()));
 	transform_Z.rotate(Eigen::AngleAxisf(-angle, Eigen::Vector3f::UnitZ()));
 	pcl::transformPointCloud(*cloud, *cloud_transformed, transform_X);
-	pcl::io::savePCDFile("result/Rerotate_X.pcd", *cloud_transformed);
+	pcl::transformPointCloud(*cloud_transformed, *cloud_transformed, transform_Z);
+
+	//pcl::io::savePCDFile("result/Rerotate_X.pcd", *cloud_transformed);
 	cloud = cloud_transformed;
 }
 
+PointCloudT::Ptr ElecTowerReconsrutction::PointScale(PointCloudT::Ptr &cloud) {
 
+	pcl::MomentOfInertiaEstimation <PointT> feature_extractor;
+	feature_extractor.setInputCloud(cloud);
+	feature_extractor.compute();
+	PointT min_point_AABB;//AABB包围盒
+	PointT max_point_AABB;
+	feature_extractor.getAABB(min_point_AABB, max_point_AABB);
+	pcl::PointCloud<PointT>::Ptr cloudScale(new pcl::PointCloud<PointT>);
+	Eigen::Isometry3d S = Eigen::Isometry3d::Identity();
+
+	double dx1 = sqrt(pow(double(min_point_AABB.x - max_point_AABB.x), 2));
+	double dx2 = sqrt(pow(double(OriginMaxAABB.x - OriginMinAABB.x), 2));
+	double dy1= sqrt(pow(double(min_point_AABB.y - max_point_AABB.y), 2));
+	double dy2 = sqrt(pow(double(OriginMaxAABB.y - OriginMaxAABB.y), 2));
+
+	double scale_x = dx1/ dx2;
+	double scale_y = dy1/ dy2;
+	double scale_z=0;
+
+	S = Eigen::Scaling(scale_x, scale_y, scale_z);
+	// 执行缩放变换，并将结果保存在 s_cloud 中
+	pcl::transformPointCloud(*cloud, *cloudScale, S.matrix());
+	return cloudScale;
+}
 
 Mat ElecTowerReconsrutction::PointGrid(PointCloudT::Ptr & cloud)
 {
@@ -318,7 +384,7 @@ void ElecTowerReconsrutction::CordinateFill(PointCloudT::Ptr &cornor,double widt
 	
 	Rerotate_X(cornor);//点云重新回到初始方向 ，此时X坐标为0
 	for (int i(0); i < cornor->size(); i++) {
-		cornor->points[i].y = width;
+		cornor->points[i].x = width;
 	}
 	pcl::io::savePCDFile("result/CordinateFill.pcd", *cornor);
 }
@@ -335,11 +401,10 @@ void ElecTowerReconsrutction::TopReconstrution(string & filepath)
 	CornorExtract(Grid_X);//角点检测并保存到目标指针
 	CordinateFill(oupts, 2.0);
 	CordinateFill(inpts, 2.0);
-	PointCloudT::Ptr Syin = PointSymmetry(inpts,2);
-	PointCloudT::Ptr Syou = PointSymmetry(oupts,2);
+	PointCloudT::Ptr Syin = PointSymmetry(inpts,1);
+	PointCloudT::Ptr Syou = PointSymmetry(oupts,1);
 	
-	
-	
+
 	string file = "result/re.obj";
 	DataOutput(inpts, oupts, Syin, Syou,file);
 }
@@ -398,5 +463,4 @@ void ElecTowerReconsrutction::DataOutput(PointCloudT::Ptr &ipt, PointCloudT::Ptr
 		else
 			fileout << "l " << m1 + m2 + m3 + i + 1 << " " << m1 + m2 + m3+1 << endl;
 	}
-
 }
