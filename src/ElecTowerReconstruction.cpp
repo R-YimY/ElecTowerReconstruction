@@ -32,7 +32,7 @@ PointCloudT::Ptr ElecTowerReconsrutction::DataInput(string& filepath) {
 		cloud->points[i].y = cloud->points[i].y - Y;
 		cloud->points[i].z = cloud->points[i].z - Z;
 	}
-	//pcl::io::savePCDFile("cloud.pcd", *cloud);
+	pcl::io::savePCDFile("result/cloud_demean.pcd", *cloud);
 	return cloud;
 }
 
@@ -144,45 +144,32 @@ void ElecTowerReconsrutction::Rerotate_Y(PointCloudT::Ptr &cloud) {
 	pcl::transformPointCloud(*cloud, *cloud_transformed, transform_X);
 	cloud = cloud_transformed;
 }
+
 void ElecTowerReconsrutction::Rerotate_X(PointCloudT::Ptr &cloud) {
 	double angle = M_PI / 2;//旋转90°
+	double angle2 = M_PI / 50;
 	PointCloudT::Ptr cloud_transformed(new PointCloudT);
-
 	Eigen::Affine3f transform_Z = Eigen::Affine3f::Identity();
 	Eigen::Affine3f transform_X = Eigen::Affine3f::Identity();
+	Eigen::Affine3f transform_Y = Eigen::Affine3f::Identity();
 	transform_X.rotate(Eigen::AngleAxisf(angle, Eigen::Vector3f::UnitX()));
 	transform_Z.rotate(Eigen::AngleAxisf(-angle, Eigen::Vector3f::UnitZ()));
+	transform_Y.rotate(Eigen::AngleAxisf(-angle2, Eigen::Vector3f::UnitY()));
 	pcl::transformPointCloud(*cloud, *cloud_transformed, transform_X);
 	pcl::transformPointCloud(*cloud_transformed, *cloud_transformed, transform_Z);
-
+	pcl::transformPointCloud(*cloud_transformed, *cloud_transformed, transform_Y);
 	//pcl::io::savePCDFile("result/Rerotate_X.pcd", *cloud_transformed);
 	cloud = cloud_transformed;
 }
-
-PointCloudT::Ptr ElecTowerReconsrutction::PointScale(PointCloudT::Ptr &cloud) {
-
-	pcl::MomentOfInertiaEstimation <PointT> feature_extractor;
-	feature_extractor.setInputCloud(cloud);
-	feature_extractor.compute();
-	PointT min_point_AABB;//AABB包围盒
-	PointT max_point_AABB;
-	feature_extractor.getAABB(min_point_AABB, max_point_AABB);
-	pcl::PointCloud<PointT>::Ptr cloudScale(new pcl::PointCloud<PointT>);
+//缩放
+void ElecTowerReconsrutction::PointScale(PointCloudT::Ptr &cloud,
+	double scale_x, double scale_y) {
+ 	pcl::PointCloud<PointT>::Ptr cloudScale(new pcl::PointCloud<PointT>);
 	Eigen::Isometry3d S = Eigen::Isometry3d::Identity();
-
-	double dx1 = sqrt(pow(double(min_point_AABB.x - max_point_AABB.x), 2));
-	double dx2 = sqrt(pow(double(OriginMaxAABB.x - OriginMinAABB.x), 2));
-	double dy1= sqrt(pow(double(min_point_AABB.y - max_point_AABB.y), 2));
-	double dy2 = sqrt(pow(double(OriginMaxAABB.y - OriginMaxAABB.y), 2));
-
-	double scale_x = dx1/ dx2;
-	double scale_y = dy1/ dy2;
-	double scale_z=0;
-
-	S = Eigen::Scaling(scale_x, scale_y, scale_z);
+	S = Eigen::Scaling(scale_x, scale_y, 0.0);
 	// 执行缩放变换，并将结果保存在 s_cloud 中
 	pcl::transformPointCloud(*cloud, *cloudScale, S.matrix());
-	return cloudScale;
+	cloud = cloudScale;
 }
 
 Mat ElecTowerReconsrutction::PointGrid(PointCloudT::Ptr & cloud)
@@ -216,13 +203,10 @@ Mat ElecTowerReconsrutction::PointGrid(PointCloudT::Ptr & cloud)
 		int colID = static_cast<int>((cloud->points[i].x - Xmin) / step);
 		PointsInGrid[rowID][colID].push_back(cloud->points[i]);
 	}
-
 	cv::Size imagesize;
 	imagesize.width = Col + 100; //短的
 	imagesize.height = Row + 100;
-
 	Mat preImage = Mat::zeros(imagesize, CV_8UC1);
-
 	for (int i(0); i < Col; i++) {       //宽度循环
 		for (int j(1); j < Row; j++) {
 			if (PointsInGrid[j][i].size() > 0)			
@@ -232,7 +216,7 @@ Mat ElecTowerReconsrutction::PointGrid(PointCloudT::Ptr & cloud)
 		}
 	}
 	cout << "preImage.size " << preImage.size() << endl;
-	imwrite("二值图.png", preImage);
+	imwrite("result/二值图.png", preImage);
 	return preImage;
 }
 
@@ -245,15 +229,15 @@ void  ElecTowerReconsrutction::CornorExtract(Mat& img) {
 	kernel = getStructuringElement(MORPH_RECT, Size(10, 10));
 	morphologyEx(img, gradient_Img, MORPH_GRADIENT, kernel);
 
-	imwrite("闭合前.jpg", gradient_Img);
+	imwrite("result/闭合前.jpg", gradient_Img);
 	Mat element = getStructuringElement(MORPH_RECT, Size(30, 30));
 	morphologyEx(gradient_Img, out, MORPH_CLOSE, element);
-	imwrite("闭合后.jpg", out);
+	imwrite("result/闭合后.jpg", out);
 	
 	//2. 边缘检测
 	Mat CannyImg;
 	cv::Canny(out, CannyImg, 30.0, 70.0 , 3 , false);
-	imwrite("边缘.jpg", CannyImg);
+	imwrite("result/边缘.jpg", CannyImg);
 
 	//3.角点检测
 	vector<vector<cv::Point>> contours;
@@ -384,30 +368,18 @@ void ElecTowerReconsrutction::CordinateFill(PointCloudT::Ptr &cornor,double widt
 	
 	Rerotate_X(cornor);//点云重新回到初始方向 ，此时X坐标为0
 	for (int i(0); i < cornor->size(); i++) {
-		cornor->points[i].x = width;
+		cornor->points[i].x +=width;
 	}
 	pcl::io::savePCDFile("result/CordinateFill.pcd", *cornor);
 }
 
-
-
-
-void ElecTowerReconsrutction::TopReconstrution(string & filepath)
-{
-	PointCloudT::Ptr cloud = DataInput(filepath);
-	//cloud = PointCloudFilter(cloud);
-	PointCloudT::Ptr cloud_projectionX = Projection_X(cloud);//沿着X投影的点云
-	cv::Mat Grid_X = PointGrid(cloud_projectionX);
-	CornorExtract(Grid_X);//角点检测并保存到目标指针
-	CordinateFill(oupts, 2.0);
-	CordinateFill(inpts, 2.0);
-	PointCloudT::Ptr Syin = PointSymmetry(inpts,1);
-	PointCloudT::Ptr Syou = PointSymmetry(oupts,1);
-	
-
-	string file = "result/re.obj";
-	DataOutput(inpts, oupts, Syin, Syou,file);
+void ElecTowerReconsrutction::SetOutPath(string &filepath) {
+	FilePath = filepath;
 }
+void ElecTowerReconsrutction::SetTowerType(int i) {
+	TowerType=i;
+}
+
 
 void ElecTowerReconsrutction::DataOutput(PointCloudT::Ptr &ipt, PointCloudT::Ptr &opt, 
 	PointCloudT::Ptr &Sipt, PointCloudT::Ptr &Sopt, string& filepath) {
@@ -463,4 +435,49 @@ void ElecTowerReconsrutction::DataOutput(PointCloudT::Ptr &ipt, PointCloudT::Ptr
 		else
 			fileout << "l " << m1 + m2 + m3 + i + 1 << " " << m1 + m2 + m3+1 << endl;
 	}
+
+
+	//===================================线保存==================================
+	for (int i(0); i < m1; i++) {
+			fileout << "l " << i + 1 << " " << m1 + i+1 << endl;
+	}
+	for (int i(0); i < m3; i++) {
+			fileout << "l " << m1 + m2 + i+1 << " " << m1 + m2 + m3 + i+1 << endl;
+	}
+}
+
+void ElecTowerReconsrutction::TowerJudge() {
+	if (TowerType == 1) {//羊角塔形
+			//角点放缩
+		PointScale(oupts, 0.95, 0.95);
+		PointScale(inpts, 1.04, 1.04);
+		//坐标填充(根据塔身的最小宽度设置)
+		CordinateFill(oupts, 1.0);
+		CordinateFill(inpts, 1.0);
+		PointCloudT::Ptr Syin = PointSymmetry(inpts, 1);
+		PointCloudT::Ptr Syou = PointSymmetry(oupts, 1);
+		//obj导出
+		DataOutput(inpts, oupts, Syin, Syou, FilePath);
+	}
+	else if(TowerType == 2){ //干形塔
+		PointScale(oupts, 0.95, 0.95);
+		CordinateFill(oupts, 1.0);
+		PointCloudT::Ptr Syou = PointSymmetry(oupts, 1);
+		PointCloudT::Ptr nullin(new PointCloudT);
+		PointCloudT::Ptr nulliny(new PointCloudT);
+		DataOutput(nullin, oupts, nulliny, Syou, FilePath);
+	}
+
+
+}
+
+void ElecTowerReconsrutction::TopReconstrution(string & filepath)
+{
+	//导入数据
+	PointCloudT::Ptr cloud = DataInput(filepath);
+	//投影&角点估计
+	PointCloudT::Ptr cloud_projectionX = Projection_X(cloud);//沿着X投影的点云
+	cv::Mat Grid_X = PointGrid(cloud_projectionX);
+	CornorExtract(Grid_X);//角点检测并保存到目标指针
+	TowerJudge();
 }

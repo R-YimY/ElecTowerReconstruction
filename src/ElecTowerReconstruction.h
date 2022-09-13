@@ -52,9 +52,8 @@ class ElecTowerReconsrutction {
 
 public:
 	void TopReconstrution(string &filepath);
-	void BodyReconstrution(string &filepath);
-
-
+	void SetOutPath(string &filepath);
+	void SetTowerType(int i);
 private:
 
 //===============================塔头重建================================
@@ -66,9 +65,9 @@ private:
 	void Rerotate_X(PointCloudT::Ptr &cloud);
 	void Rerotate_Y(PointCloudT::Ptr &cloud);
 	void AABBCompute(PointCloudT::Ptr &cloud);
-	PointCloudT::Ptr PointScale(PointCloudT::Ptr &cloud);
-	PointT CentorPoint(PointCloudT::Ptr &cloud);
-
+	void PointScale(PointCloudT::Ptr &cloud,
+	double scale_x, double scale_y);//缩放
+	void TowerJudge();
 
 	Mat PointGrid(PointCloudT::Ptr &cloud);//二维图构建
 	void CornorExtract(Mat& img);
@@ -83,8 +82,10 @@ private:
 
 
 private:
+	string FilePath;
+	int TowerType;
 
-	
+
 	PointT OriginMaxAABB;
 	PointT OriginMinAABB;
 	string filepath;
