@@ -1,5 +1,8 @@
 # ElecTowerReconstruction
 
+
+![image](ElecTowerReconstruction/result/result.jpg)
+
 ## 算法基本流程：
 
 1、读取点云数据，将点云数据投影到目标平面
