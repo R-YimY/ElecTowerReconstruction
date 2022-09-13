@@ -1,7 +1,7 @@
 # ElecTowerReconstruction
 
 
-![image](ElecTowerReconstruction/result/result.jpg)
+![image](result/result.jpg)
 
 ## 算法基本流程：
 
